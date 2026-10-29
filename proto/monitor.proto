@@ -1,0 +1,96 @@
+syntax = "proto3";
+
+package monitor;
+
+// 传输层: 每条消息都是 nonce(12) || ChaCha20-Poly1305 密文,
+// 明文为 ClientMessage / ServerMessage 的 protobuf 编码.
+message Envelope {
+  bytes data = 1;
+}
+
+service Monitor {
+  // client 主动发起的双向流长连接
+  rpc Session(stream Envelope) returns (stream Envelope);
+}
+
+message ClientMessage {
+  oneof body {
+    Hello hello = 1;
+    Report report = 2;
+    ServiceResult service_result = 3;
+    GuardEvent guard_event = 4;
+  }
+}
+
+message ServerMessage {
+  oneof body {
+    Welcome welcome = 1;
+    Ping ping = 2;
+    ServiceCommand service_command = 3;
+  }
+}
+
+message Hello {
+  string name = 1;
+  string version = 2;
+}
+
+message Welcome {}
+
+message Ping {
+  int64 ts_ms = 1;
+}
+
+message Report {
+  int64 ts_ms = 1;
+  float cpu_percent = 2;
+  uint64 mem_total = 3;
+  uint64 mem_used = 4;
+  repeated Disk disks = 5;
+  // client 配置中允许控制的 systemd 服务的状态
+  repeated ServiceStatus services = 6;
+}
+
+message Disk {
+  string mount = 1;
+  string fs = 2;
+  uint64 total = 3;
+  uint64 used = 4;
+}
+
+message ServiceStatus {
+  string name = 1;         // 例如 testser.service
+  string load_state = 2;   // loaded / not-found / ...
+  string active_state = 3; // active / inactive / failed / activating / deactivating
+  string sub_state = 4;    // running / dead / exited / ...
+  bool guarded = 5;        // 该服务是否配置了守护
+  bool guard_paused = 6;   // 守护已暂停 (被手动停止, 直到再次手动启动)
+}
+
+enum ServiceAction {
+  SERVICE_ACTION_UNSPECIFIED = 0;
+  SERVICE_ACTION_START = 1;
+  SERVICE_ACTION_STOP = 2;
+  SERVICE_ACTION_RESTART = 3;
+}
+
+// server -> client: 控制服务 (client 只执行 config 中列出的服务)
+message ServiceCommand {
+  uint64 id = 1;
+  string service = 2;
+  ServiceAction action = 3;
+}
+
+// client -> server: 控制结果
+message ServiceResult {
+  uint64 id = 1;
+  bool ok = 2;
+  string message = 3;
+}
+
+// client -> server: 守护服务被自动重启 (或重启失败) 的记录
+message GuardEvent {
+  string service = 1;
+  bool ok = 2;
+  string message = 3;
+}

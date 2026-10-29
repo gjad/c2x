@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>c2x monitor - 详情</title>
+<link rel="stylesheet" href="/static/common.css">
+</head>
+<body>
+<h1><span id="title">-</span> <span id="conn">连接中…</span></h1>
+<div id="cards"></div>
+
+<div id="svcBox" hidden>
+  <h2>服务控制</h2>
+  <div id="svcList"></div>
+</div>
+
+<div id="chartBox">
+  <div id="chartHead">
+    <b>历史折线图</b>
+    <select id="range">
+      <option value="3600000">最近 1 小时</option>
+      <option value="21600000">最近 6 小时</option>
+      <option value="86400000" selected>最近 24 小时</option>
+      <option value="604800000">最近 7 天</option>
+      <option value="2592000000">最近 30 天</option>
+    </select>
+    <span class="legend">
+      <span><i style="background:var(--cpu)"></i>CPU</span>
+      <span><i style="background:var(--mem)"></i>内存</span>
+      <span><i style="background:var(--disk)"></i>硬盘</span>
+    </span>
+  </div>
+  <canvas id="chart"></canvas>
+  <div id="tip"></div>
+</div>
+
+<div id="logBox">
+  <h2>操作日志 <span id="logTotal" class="meta"></span></h2>
+  <table class="log">
+    <thead><tr><th style="width:170px">时间</th><th style="width:90px">类型</th><th>内容</th></tr></thead>
+    <tbody id="logBody"></tbody>
+  </table>
+  <div id="pager">
+    <button id="prevPage">上一页</button>
+    <span id="pageInfo"></span>
+    <button id="nextPage">下一页</button>
+  </div>
+</div>
+
+<script src="/static/common.js"></script>
+<script>
+const COLORS = { cpu:'#4ea1ff', mem:'#ffb454', disk:'#7ad97a' };
+const id = new URLSearchParams(location.search).get('id') || '';
+let points = [], lastRender = null;
+
+function diskOf(sample) {
+  if (!sample || !sample.disks.length) return null;
+  return sample.disks.find(d => d.mount === '/') || sample.disks[0];
+}
+
+// ---- 实时状态 (与列表页相同的一行) ----
+const row = createRow();
+$('cards').append(headRow(), row.root);
+$('title').textContent = id;
+
+watchStream(snap => {
+  const c = snap.clients.find(c => c.id === id);
+  if (!c) { $('title').textContent = id + ' (未找到该主机)'; setRowsStale([row]); renderServices(null); return; }
+  updateRow(row, c, snap.now);
+  renderServices(c);
+  $('title').textContent = `${c.name} (${c.ip})`;
+  document.title = c.name + ' - c2x monitor';
+}, () => { setRowsStale([row]); renderServices(null); });
+
+// ---- 服务控制: 只能操作 client 配置中列出的服务 ----
+const ACTIONS = [['start', '启动'], ['stop', '停止', true], ['restart', '重启', true]];
+const svcLines = new Map();
+
+function ensureSvcLine(name) {
+  let L = svcLines.get(name);
+  if (L) return L;
+  const root = el('div', 'svcline');
+  const nameTxt = el('span', '', name), guardIc = el('span', 'guard');
+  const nameEl = el('div', 'sname'); nameEl.append(nameTxt, guardIc);
+  const state = el('div', 'sstate');
+  const btns = {};
+  const msg = el('div', 'smsg');
+  root.append(state, nameEl);
+  L = { root, state, nameTxt, guardIc, btns, msg, busy: false };
+  for (const [act, label, confirmFirst] of ACTIONS) {
+    const b = el('button', act === 'stop' ? 'danger' : '', label);
+    b.onclick = () => runAction(name, act, label, L);
+    btns[act] = b;
+    root.appendChild(b);
+  }
+  root.appendChild(msg);
+  $('svcList').appendChild(root);
+  svcLines.set(name, L);
+  return L;
+}
+
+// c 为 null 表示实时数据不可用 (流中断或主机不存在): 禁用所有按钮
+function renderServices(c) {
+  const sv = c ? (c.services || []) : [...svcLines.keys()].map(n => ({ name: n, active: 'unknown', sub: '', load: '' }));
+  $('svcBox').hidden = !sv.length;
+  for (const x of sv) {
+    const L = ensureSvcLine(x.name);
+    L.state.className = 'sstate ' + svcClass(x).replace(/^svc ?/, '');
+    L.state.replaceChildren(el('span', 'dot'));
+    L.nameTxt.textContent = c ? svcText(x) : x.name;
+    setGuardIcon(L.guardIc, x);
+    const usable = !!c && c.online && !L.busy && x.load !== 'not-found';
+    L.btns.start.disabled = !usable || x.active === 'active' || x.active === 'activating';
+    L.btns.stop.disabled = !usable || x.active === 'inactive' || x.active === 'failed';
+    L.btns.restart.disabled = !usable;
+  }
+}
+
+async function runAction(name, act, label, L) {
+  if (!confirm(`确定要${label}服务 ${name} 吗?`)) return;
+  L.busy = true;
+  for (const b of Object.values(L.btns)) b.disabled = true;
+  L.msg.className = 'smsg'; L.msg.textContent = `${label}中…`;
+  try {
+    const r = await fetch(`/api/clients/${encodeURIComponent(id)}/services/${encodeURIComponent(name)}/${act}`,
+      { method: 'POST', headers: { 'x-c2x': '1' } });
+    const j = await r.json();
+    L.msg.className = 'smsg' + (j.ok ? '' : ' err');
+    L.msg.textContent = j.ok ? `${label}成功${j.message ? ': ' + j.message : ''}` : `${label}失败: ${j.message}`;
+  } catch (e) {
+    L.msg.className = 'smsg err'; L.msg.textContent = `${label}失败: 请求出错`;
+  } finally {
+    L.busy = false;  // 按钮状态在下一次实时推送时刷新
+    loadLogs();
+  }
+}
+
+// ---- 折线图 ----
+async function loadHistory() {
+  const from = Date.now() - Number($('range').value);
+  try {
+    const r = await fetch(`/api/history?client=${encodeURIComponent(id)}&from=${from}`);
+    if (!r.ok) return;
+    points = await r.json();
+  } catch (e) { return; }
+  draw(from, Date.now());
+}
+
+function draw(from, to) {
+  const cv = $('chart'), dpr = window.devicePixelRatio || 1;
+  const W = cv.clientWidth, H = cv.clientHeight;
+  cv.width = W * dpr; cv.height = H * dpr;
+  const g = cv.getContext('2d'); g.scale(dpr, dpr);
+  const L = 40, R = 10, T = 8, B = 22, pw = W - L - R, ph = H - T - B;
+  const x = t => L + (t - from) / (to - from) * pw;
+  const y = v => T + ph - v / 100 * ph;
+
+  g.font = '11px system-ui'; g.fillStyle = '#7d8a99'; g.strokeStyle = '#2a3441'; g.lineWidth = 1;
+  g.textAlign = 'right'; g.textBaseline = 'middle';
+  for (let v = 0; v <= 100; v += 20) {
+    g.beginPath(); g.moveTo(L, y(v) + .5); g.lineTo(W - R, y(v) + .5); g.stroke();
+    g.fillText(v + '%', L - 6, y(v));
+  }
+  g.textAlign = 'center'; g.textBaseline = 'top';
+  for (let i = 0; i <= 4; i++) { const t = from + (to - from) * i / 4; g.fillText(fmtTime(t), x(t), H - B + 6); }
+
+  // 按时间桶平均, 桶不小于 1 分钟; 缺失的桶使折线断开
+  const bucket = Math.max(60000, (to - from) / (pw / 2));
+  const n = Math.ceil((to - from) / bucket);
+  const maxGap = bucket <= 60000 ? 2 : 1;
+  const acc = Array.from({ length: n }, () => ({ c: 0, cpu: 0, mem: 0, disk: 0, dc: 0 }));
+  for (const p of points) {
+    const i = Math.min(n - 1, Math.floor((p.ts - from) / bucket)); if (i < 0) continue;
+    const a = acc[i]; a.c++; a.cpu += p.cpu; a.mem += pct(p.mem_used, p.mem_total);
+    const d = diskOf(p); if (d) { a.disk += pct(d.used, d.total); a.dc++; }
+  }
+  const series = { cpu: [], mem: [], disk: [] };
+  acc.forEach((a, i) => { if (!a.c) return; const t = from + (i + .5) * bucket;
+    series.cpu.push([t, a.cpu / a.c]); series.mem.push([t, a.mem / a.c]);
+    if (a.dc) series.disk.push([t, a.disk / a.dc]); });
+  lastRender = { from, to, series, x, L, W, R, bucket };
+
+  g.lineWidth = 1.6; g.lineJoin = 'round';
+  for (const k of ['cpu', 'mem', 'disk']) {
+    g.strokeStyle = COLORS[k]; g.beginPath();
+    let prev = null;
+    for (const [t, v] of series[k]) {
+      if (prev !== null && (t - prev) / bucket > maxGap) g.moveTo(x(t), y(v));
+      else if (prev === null) g.moveTo(x(t), y(v)); else g.lineTo(x(t), y(v));
+      prev = t;
+    }
+    g.stroke();
+  }
+  if (!points.length) { g.fillStyle = '#7d8a99'; g.textAlign = 'center'; g.textBaseline = 'middle';
+    g.fillText('暂无数据', L + pw / 2, T + ph / 2); }
+}
+
+$('chart').addEventListener('mousemove', e => {
+  if (!lastRender) return;
+  const rect = $('chart').getBoundingClientRect(), mx = e.clientX - rect.left;
+  const { series, x } = lastRender;
+  let best = null, bd = 1e9;
+  for (const [t] of series.cpu) { const d = Math.abs(x(t) - mx); if (d < bd) { bd = d; best = t; } }
+  if (best === null || bd > 30) { $('tip').textContent = ''; return; }
+  const f = k => { const s = series[k].find(p => p[0] === best); return s ? s[1].toFixed(1) + '%' : '-'; };
+  $('tip').textContent = `${fmtTime(best)}  CPU ${f('cpu')}  内存 ${f('mem')}  硬盘 ${f('disk')}`;
+});
+$('chart').addEventListener('mouseleave', () => { $('tip').textContent = ''; });
+$('range').onchange = loadHistory;
+window.addEventListener('resize', () => lastRender && draw(lastRender.from, lastRender.to));
+setInterval(loadHistory, 60000);
+loadHistory();
+
+// ---- 操作日志 (含上线/下线、服务启停), 每页 100 条, 最新在前 ----
+let logPage = 1, logPages = 1;
+async function loadLogs() {
+  try {
+    const r = await fetch(`/api/events?client=${encodeURIComponent(id)}&page=${logPage}`);
+    if (!r.ok) return;
+    const j = await r.json();
+    logPages = j.pages;
+    if (logPage > logPages) { logPage = logPages; return loadLogs(); }
+    $('logTotal').textContent = `共 ${j.total} 条, 保留 30 天`;
+    $('pageInfo').textContent = `第 ${j.page} / ${j.pages} 页`;
+    $('prevPage').disabled = j.page <= 1;
+    $('nextPage').disabled = j.page >= j.pages;
+    $('logBody').replaceChildren(...(j.items.length ? j.items.map(e => {
+      const tr = el('tr', evClass(e));
+      tr.append(el('td', 't', fmtFull(e.ts)), el('td', 'k', evKind(e)), el('td', 'm', e.message));
+      return tr;
+    }) : [(() => { const tr = el('tr'); const td = el('td', 'm', '暂无日志'); td.colSpan = 3; tr.appendChild(td); return tr; })()]));
+  } catch (e) { /* 忽略, 下次刷新重试 */ }
+}
+$('prevPage').onclick = () => { if (logPage > 1) { logPage--; loadLogs(); } };
+$('nextPage').onclick = () => { if (logPage < logPages) { logPage++; loadLogs(); } };
+setInterval(loadLogs, 5000);
+loadLogs();
+</script>
+</body>
+</html>

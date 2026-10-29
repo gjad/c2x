@@ -1,0 +1,81 @@
+  :root { --bg:#0f1419; --card:#1a212b; --fg:#d6dde6; --dim:#7d8a99; --line:#2a3441;
+          --cpu:#4ea1ff; --mem:#ffb454; --disk:#7ad97a; --ok:#3fb950; --bad:#f85149; }
+  * { box-sizing: border-box; }
+  body { margin:0; padding:16px; background:var(--bg); color:var(--fg);
+         font:14px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif; }
+  h1 { font-size:18px; margin:0 0 12px; }
+  #cards { display:flex; flex-direction:column; gap:8px; }
+  .hostrow { display:grid; grid-template-columns:minmax(130px,.9fr) 56px minmax(0,1.2fr) minmax(0,1.5fr) minmax(0,1.2fr) minmax(0,2fr); gap:16px; align-items:start;
+             background:var(--card); border:1px solid var(--line); border-radius:8px; padding:10px 14px; }
+  .hostrow.link { cursor:pointer; }
+  .hostrow.link:hover { border-color:var(--cpu); }
+  .hostrow.head { background:none; border:1px solid transparent; padding:0 14px; cursor:default; color:var(--dim); font-size:12px; }
+  .hostrow .nm { font-weight:600; overflow-wrap:anywhere; }
+  .badge { display:inline-block; font-size:12px; padding:1px 8px; border-radius:10px; background:var(--bad); color:#fff; }
+  .badge.on { background:var(--ok); }
+  .meta { color:var(--dim); font-size:12px; }
+  .cell .val { color:var(--dim); font-size:12px; font-variant-numeric:tabular-nums; margin:2px 0 4px; }
+  .bar { height:8px; background:#0c1015; border-radius:4px; overflow:hidden; }
+  .bar > i { display:block; height:100%; width:0; background:var(--cpu); transition:width .3s; }
+  .bar.mem > i { background:var(--mem); } .bar.disk > i { background:var(--disk); }
+  .offline .bar > i { opacity:.35; }
+  @media (max-width:800px) { .hostrow { grid-template-columns:1fr 1fr; } .hostrow.head { display:none; } }
+  #chartBox { margin-top:16px; background:var(--card); border:1px solid var(--line); border-radius:8px; padding:12px; }
+  #chartHead { display:flex; flex-wrap:wrap; gap:12px; align-items:center; margin-bottom:8px; }
+  #chartHead b { font-size:15px; }
+  select { background:#0c1015; color:var(--fg); border:1px solid var(--line); border-radius:4px; padding:2px 6px; }
+  .legend span { margin-right:12px; font-size:13px; }
+  .legend i { display:inline-block; width:12px; height:3px; margin-right:4px; vertical-align:middle; }
+  canvas { width:100%; height:320px; display:block; }
+  #tip { color:var(--dim); font-size:12px; min-height:18px; margin-top:4px; font-variant-numeric:tabular-nums; }
+  #conn { float:right; font-size:12px; color:var(--dim); }
+  .svc { font-size:12px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .svc .dot { display:inline-block; width:8px; height:8px; border-radius:50%; margin-right:6px; background:var(--dim); }
+  .svc.up .dot { background:var(--ok); }
+  .offline .svc { opacity:.5; }
+  #svcBox { margin-top:16px; background:var(--card); border:1px solid var(--line); border-radius:8px; padding:12px; }
+  #svcBox h2 { font-size:15px; margin:0 0 8px; }
+  .svcline { display:flex; flex-wrap:wrap; align-items:center; gap:12px; padding:6px 0; border-top:1px solid var(--line); }
+  .svcline:first-of-type { border-top:none; }
+  .svcline .sname { font-weight:600; min-width:180px; }
+  .svcline .sstate .dot { display:inline-block; width:12px; height:12px; border-radius:50%; background:var(--dim); }
+  .svcline .sstate.up .dot { background:var(--ok); }
+  .svcline .sstate.down .dot { background:var(--bad); box-shadow:0 0 6px var(--bad); }
+  .svcline .smsg { color:var(--dim); font-size:12px; overflow-wrap:anywhere; }
+  .svcline .smsg.err { color:var(--bad); }
+  button { background:#0c1015; color:var(--fg); border:1px solid var(--line); border-radius:4px; padding:3px 12px; cursor:pointer; font:inherit; }
+  button:hover:not(:disabled) { border-color:var(--cpu); }
+  button:disabled { opacity:.4; cursor:not-allowed; }
+  button.danger:hover:not(:disabled) { border-color:var(--bad); }
+  .svc.down { color:var(--bad); font-weight:700; }
+  .svc.down .dot { background:var(--bad); box-shadow:0 0 6px var(--bad); }
+  .offline .svc.down { opacity:1; }
+  .logs .ev { font-size:12px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; color:var(--dim); }
+  .logs .ev .t { margin-right:6px; font-variant-numeric:tabular-nums; }
+  .logs .ev.good .m { color:var(--ok); } .logs .ev.bad .m { color:var(--bad); } .logs .ev.op .m { color:var(--mem); }
+  #logBox { margin-top:16px; background:var(--card); border:1px solid var(--line); border-radius:8px; padding:12px; }
+  #logBox h2 { font-size:15px; margin:0 0 8px; }
+  table.log { width:100%; border-collapse:collapse; font-size:13px; }
+  table.log th { text-align:left; color:var(--dim); font-weight:400; font-size:12px; padding:4px 8px; border-bottom:1px solid var(--line); }
+  table.log td { padding:4px 8px; border-bottom:1px solid var(--line); vertical-align:top; overflow-wrap:anywhere; }
+  table.log td.t { white-space:nowrap; color:var(--dim); font-variant-numeric:tabular-nums; }
+  table.log tr.good .k, table.log tr.good .m { color:var(--ok); }
+  table.log tr.bad .k, table.log tr.bad .m { color:var(--bad); }
+  table.log tr.op .k { color:var(--mem); }
+  #pager { display:flex; align-items:center; gap:12px; margin-top:10px; font-size:13px; color:var(--dim); }
+  .cpumem .cell + .cell { margin-top:6px; }
+  .guard { display:inline-block; width:12px; height:12px; margin-left:6px; vertical-align:-2px; background:var(--cpu);
+           -webkit-mask:var(--shield) center/contain no-repeat; mask:var(--shield) center/contain no-repeat; }
+  .guard[hidden] { display:none; }
+  .guard.paused { background:var(--dim); }
+  :root { --shield:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M12 2 4 5v6c0 5 3.4 9.7 8 11 4.6-1.3 8-6 8-11V5z'/%3E%3C/svg%3E"); }
+  /* 各行使用相同的固定比例列宽 (minmax(0,..)), 内容过长时截断, 保证所有主机的列严格对齐 */
+  .hostrow > div { min-width:0; }
+  .hostrow .nm + .meta { white-space:pre-line; }
+  .cell .val { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  button.del { display:block; margin-top:6px; padding:1px 8px; font-size:12px; color:var(--bad); }
+  button.del[hidden] { display:none; }
+  button.danger { color:var(--bad); }
+  dialog { background:var(--card); color:var(--fg); border:1px solid var(--line); border-radius:8px; padding:16px; width:min(420px,90vw); }
+  dialog::backdrop { background:rgba(0,0,0,.6); }
+  dialog input { width:100%; background:#0c1015; color:var(--fg); border:1px solid var(--line); border-radius:4px; padding:6px 8px; font:inherit; }

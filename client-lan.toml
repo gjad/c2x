@@ -1,0 +1,8 @@
+# server 的 gRPC 地址
+server = "http://10.1.4.196:50051"
+
+# 在 web 上显示的名称 (任意文本, 最长 64 字符); server 以 client 的来源 IP 作为唯一标识
+name = "本机-LAN"
+
+# 使用哪个 token 连接, 必须在 server.toml 的 tokens 中
+token = "change-me-token-1"

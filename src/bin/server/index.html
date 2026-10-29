@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>c2x monitor</title>
+<link rel="stylesheet" href="/static/common.css">
+</head>
+<body>
+<h1>c2x monitor <span id="conn">连接中…</span></h1>
+<div id="cards"></div>
+<div class="meta" style="margin-top:8px">点击某一行, 在新窗口打开该主机的详情和历史折线图</div>
+
+<dialog id="delDlg">
+  <form method="dialog" id="delForm">
+    <div id="delTitle" style="font-weight:600;margin-bottom:6px"></div>
+    <div class="meta" style="margin-bottom:8px">将删除该主机在列表中的记录及全部历史曲线数据, 操作日志保留。请输入管理密码:</div>
+    <input type="password" id="delPwd" autocomplete="off" placeholder="管理密码">
+    <div id="delErr" class="smsg err" style="min-height:18px;margin:6px 0"></div>
+    <div style="display:flex;gap:8px;justify-content:flex-end">
+      <button type="button" id="delCancel">取消</button>
+      <button type="submit" id="delOk" class="danger">删除</button>
+    </div>
+  </form>
+</dialog>
+
+<script src="/static/common.js"></script>
+<script>
+const rows = new Map();
+$('cards').appendChild(headRow());
+
+// ---- 删除离线 client: 弹窗输入管理密码 ----
+let delId = null;
+function askDelete(c) {
+  delId = c.id;
+  $('delTitle').textContent = `删除 ${c.name} (${c.ip})`;
+  $('delPwd').value = ''; $('delErr').textContent = '';
+  $('delDlg').showModal(); $('delPwd').focus();
+}
+$('delCancel').onclick = () => $('delDlg').close();
+$('delForm').onsubmit = async e => {
+  e.preventDefault();
+  $('delOk').disabled = true; $('delErr').textContent = '';
+  try {
+    const r = await fetch(`/api/clients/${encodeURIComponent(delId)}/delete`, {
+      method: 'POST', headers: { 'x-c2x': '1', 'content-type': 'application/json' },
+      body: JSON.stringify({ password: $('delPwd').value }) });
+    const j = await r.json().catch(() => ({}));
+    if (r.ok && j.ok) { $('delDlg').close(); }   // 列表在下一次实时推送中自动移除
+    else $('delErr').textContent = j.message || `删除失败 (${r.status})`;
+  } catch (err) { $('delErr').textContent = '请求失败'; }
+  $('delOk').disabled = false;
+};
+
+function render(snap) {
+  for (const c of snap.clients) {
+    let k = rows.get(c.id);
+    if (!k) {
+      k = createRow();
+      k.root.classList.add('link');
+      k.root.onclick = () => window.open('/detail?id=' + encodeURIComponent(c.id), '_blank', 'noopener');
+      // 离线 client 才显示删除按钮 (点击不触发打开详情)
+      k.del = el('button', 'del', '删除');
+      k.del.onclick = ev => { ev.stopPropagation(); askDelete(k.client); };
+      k.badge.parentNode.appendChild(k.del);
+      $('cards').appendChild(k.root);
+      rows.set(c.id, k);
+    }
+    k.client = c;
+    k.del.hidden = c.online;
+    updateRow(k, c, snap.now);
+  }
+  // server 不再下发的 client 从页面移除, 避免残留过期的“在线”行
+  const ids = new Set(snap.clients.map(c => c.id));
+  for (const [id, r] of rows) if (!ids.has(id)) { r.root.remove(); rows.delete(id); }
+}
+
+watchStream(render, () => { setRowsStale(rows.values()); for (const k of rows.values()) k.del.hidden = true; });
+</script>
+</body>
+</html>

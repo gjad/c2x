@@ -1,0 +1,15 @@
+# server 的 gRPC 地址
+server = "http://127.0.0.1:50051"
+
+# 在 web 上显示的名称 (任意文本, 最长 64 字符); server 以 client 的来源 IP 作为唯一标识
+name = "本机-127"
+
+# 使用哪个 token 连接, 必须在 server.toml 的 tokens 中
+token = "change-me-token-1"
+
+# 允许 server 查看并控制(启动/停止/重启)的 systemd 服务, 只有这里列出的服务才会被执行
+services = ["testser.service", "testser1.service"]
+
+# 服务守护: 这里列出的服务一旦停止运行, client 会自动重启它, 并在 server 上留下日志.
+# 必须是上面 services 的子集. 在 web 上手动"停止"某个守护服务会暂停对它的守护, 手动"启动"后恢复.
+guard = ["testser1.service"]
